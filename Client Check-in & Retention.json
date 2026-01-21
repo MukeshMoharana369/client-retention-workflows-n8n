@@ -1,0 +1,1064 @@
+{
+  "name": "Client Check-in & Retention",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "e689baa4-700b-4256-b92f-ecbb772c9a17",
+      "name": "Cron Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        336,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY",
+          "mode": "list",
+          "cachedResultName": "entities",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY/edit#gid=0"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "status",
+              "lookupValue": "ACTIVE"
+            },
+            {
+              "lookupColumn": "payment_status",
+              "lookupValue": "PAID"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "bd118fb4-09ea-4eb1-a8be-c9fc9ef57b95",
+      "name": "Fetch Active Entities",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        560,
+        112
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Zgco6jw9Plu7dw1B",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 10,
+        "options": {}
+      },
+      "id": "b2471635-527c-46b3-83cb-6d207da806c8",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        784,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.email }}",
+        "subject": "Weekly Check-In Request",
+        "message": "=Hi {{ $json.name }},\n\nPlease complete your weekly check-in here: [https://docs.google.com/forms/d/e/1FAIpQLScqNSqiSEmrOsaevA1SvL71Oa4KBqyzLT04iZIl9fbGJfiPeg/viewform?usp=publish-editor]\n\nEntity ID: {{ $json.entity_id }}\nCycle ID: {{ $json.cycle_id }}",
+        "options": {}
+      },
+      "id": "df080368-8b78-4fcb-b63f-f227c0472250",
+      "name": "Send Check-In Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1008,
+        112
+      ],
+      "webhookId": "2aea7b67-7334-4638-b4d5-ea91a0572811",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "wQEUChLr6p4FBnLg",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Helper: get ISO week number\nfunction getISOWeek(date) {\n  const d = new Date(date);\n  d.setHours(0, 0, 0, 0);\n  d.setDate(d.getDate() + 4 - (d.getDay() || 7));\n  const yearStart = new Date(d.getFullYear(), 0, 1);\n  const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);\n  return `${d.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;\n}\n\nreturn items.map(item => {\n  const row = item.json;\n\n  // 🔍 Better key matching: find key that *contains* \"Entity ID\" (case-insensitive, ignores spaces)\n  const findKey = (partialName) => {\n    return Object.keys(row).find(key => \n      key.trim().toLowerCase().includes(partialName.toLowerCase())\n    );\n  };\n\n  // Extract values using fuzzy key matching\n  const entityKey = findKey(\"Entity ID\");\n  const energyKey = findKey(\"Energy Level\");\n  const progressKey = findKey(\"Progress Percentage\");\n  const painKey = findKey(\"Any pain or issue?\");\n\n  const entityID = entityKey ? String(row[entityKey]).trim() : \"\";\n  const timestamp = row.Timestamp; // this key is clean\n  const energy = energyKey ? parseInt(row[energyKey]) || 0 : 0;\n  const progress = progressKey ? parseInt(row[progressKey]) || 0 : 0;\n  const pain = painKey ? String(row[painKey]).trim().toLowerCase() : \"\";\n\n  // Risk logic\n  const isAtRisk = \n    energy <= 2 ||\n    progress <= 4 ||\n    pain === \"yes\" ||\n    pain === \"maybe\";\n\n  const cycleID = timestamp ? getISOWeek(timestamp) : \"UNKNOWN\";\n\n  return {\n    json: {\n      entity_id: entityID,\n      cycle_id: cycleID,\n      risk_flag: isAtRisk\n    }\n  };\n});"
+      },
+      "id": "1436ae73-7c71-4d9c-8543-7e2fc95a82e8",
+      "name": "Code (Risk Evaluation)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        784,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY",
+          "mode": "list",
+          "cachedResultName": "entities",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 872168007,
+          "mode": "list",
+          "cachedResultName": "Form responses 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY/edit#gid=872168007"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Entity ID ": "={{ $json.entity_id }}",
+            "risk_flag": "={{ $json.risk_flag }}",
+            "cycle_id": "={{ $json.cycle_id }}"
+          },
+          "matchingColumns": [
+            "Entity ID "
+          ],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Entity ID ",
+              "displayName": "Entity ID ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "  Energy Level  ",
+              "displayName": "  Energy Level  ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "  Progress Percentage  ",
+              "displayName": "  Progress Percentage  ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "  Any pain or issue?  ",
+              "displayName": "  Any pain or issue?  ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Any blocker? (optional)",
+              "displayName": "Any blocker? (optional)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "risk_flag",
+              "displayName": "risk_flag",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "cycle_id",
+              "displayName": "cycle_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "risk_reasons",
+              "displayName": "risk_reasons",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "response_id",
+              "displayName": "response_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "bf504311-da8d-4246-8ae1-9ef69239402b",
+      "name": "Update Response Record",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1024,
+        544
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Zgco6jw9Plu7dw1B",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY",
+          "mode": "list",
+          "cachedResultName": "entities",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY/edit#gid=0"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "status",
+              "lookupValue": "ACTIVE"
+            },
+            {
+              "lookupColumn": "payment_status",
+              "lookupValue": "PAID"
+            },
+            {
+              "lookupColumn": "checkin_enabled",
+              "lookupValue": "true"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "22c8c8c8-5636-492c-ac7f-087364294aff",
+      "name": "Fetch Expected Entities",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        576,
+        1296
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Zgco6jw9Plu7dw1B",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY",
+          "mode": "list",
+          "cachedResultName": "entities",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 872168007,
+          "mode": "list",
+          "cachedResultName": "Form responses 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY/edit#gid=872168007"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "cycle_id",
+              "lookupValue": "={{ $json.cycle_id }}"
+            }
+          ]
+        },
+        "combineFilters": "OR",
+        "options": {
+          "returnFirstMatch": false
+        }
+      },
+      "id": "ff6c2375-220b-4532-97fc-5bb56e62848d",
+      "name": "Fetch Responders (Current Cycle)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        592,
+        1072
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Zgco6jw9Plu7dw1B",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "documentId": {
+          "__rl": true,
+          "value": "1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY",
+          "mode": "list",
+          "cachedResultName": "entities",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 872168007,
+          "mode": "list",
+          "cachedResultName": "Form responses 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY/edit#gid=872168007"
+        },
+        "event": "rowAdded",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTrigger",
+      "typeVersion": 1,
+      "position": [
+        352,
+        576
+      ],
+      "id": "c93b9d51-d991-4ad9-a2ef-435443275d23",
+      "name": "Google Sheets Trigger",
+      "credentials": {
+        "googleSheetsTriggerOAuth2Api": {
+          "id": "FYxODYoRddhyoCuX",
+          "name": "Google Sheets Trigger account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "cbfe0f17-eaef-44a8-9a3b-d893b5e997e1",
+      "name": "Split In Batches1",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        544,
+        560
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "934d574c-9c13-4757-8417-c53f83e3cb5a",
+      "name": "Merge",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        816,
+        1136
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 18 * * 3"
+            }
+          ]
+        }
+      },
+      "id": "68e875ed-bc8e-46a2-a7cf-8168e6d33cf1",
+      "name": "Cron Trigger3",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        208,
+        1136
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ISO week cycle_id\nconst d = new Date();\nconst day = d.getUTCDay() || 7;\nd.setUTCDate(d.getUTCDate() + 4 - day);\nconst yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));\nconst week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);\nconst cycle_id = `${d.getUTCFullYear()}-W${String(week).padStart(2,'0')}`;\nreturn [{ json: { cycle_id } }];"
+      },
+      "id": "10feea61-d876-4175-a6a7-c204ae549065",
+      "name": "Calculate Cycle ID1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        1136
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * Workflow 3 — Silence Detection\n * Works with MERGED mixed data (entities + responses)\n */\n\n// All merged items\nconst rows = items.map(i => i.json);\n\n// RESPONDERS → rows that have a cycle_id\nconst responders = rows.filter(r => r.cycle_id);\n\n// EXPECTED → rows that have entity_id (from entities sheet)\nconst expected = rows.filter(r => r.entity_id);\n\n// Extract IDs\nconst responderIds = responders.map(r => r[\"Entity ID \"] || r.entity_id);\nconst expectedIds = expected.map(r => r.entity_id);\n\n// Detect silent (expected but not responded)\nconst silentIds = expectedIds.filter(\n  id => !responderIds.includes(id)\n);\n\n// Get cycle_id safely (from responders)\nconst cycle_id = responders[0]?.cycle_id || null;\n\n// Output silence flags\nreturn silentIds.map(id => ({\n  json: {\n    entity_id: id,\n    cycle_id,\n    status: \"SILENT\",\n    risk_flag: true,\n    reason: \"no_checkin_submitted\"\n  }\n}));\n"
+      },
+      "id": "9f776407-e43d-4c71-89b0-dbd8c943ef84",
+      "name": "Code (Silence Detection)1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        1136
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY",
+          "mode": "list",
+          "cachedResultName": "entities",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 250712757,
+          "mode": "list",
+          "cachedResultName": "SILENCE_FLAGS",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY/edit#gid=250712757"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "entity_id": "={{ $json.entity_id }}",
+            "cycle_id": "={{ $json.cycle_id }}",
+            "risk_flag": "={{ $json.risk_flag }}",
+            "reason": "={{ $json.reason }}",
+            "detected_at": "={{ $now }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "entity_id",
+              "displayName": "entity_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "cycle_id",
+              "displayName": "cycle_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "risk_flag",
+              "displayName": "risk_flag",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reason",
+              "displayName": "reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "detected_at",
+              "displayName": "detected_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "7a8b62f7-9bd7-4f8e-9373-a1d337669784",
+      "name": "Store Silence Flags1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1216,
+        1136
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Zgco6jw9Plu7dw1B",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "cycle_id",
+              "value": "={{ $json.cycle_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b61830c3-ea02-4ca3-8b9e-73d1db876f6f",
+      "name": "Set Cycle ID",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        464,
+        1904
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY",
+          "mode": "list",
+          "cachedResultName": "entities",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 872168007,
+          "mode": "list",
+          "cachedResultName": "Form responses 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY/edit#gid=872168007"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "cycle_id",
+              "lookupValue": "={{ $json.cycle_id }}"
+            }
+          ]
+        },
+        "combineFilters": "AND",
+        "options": {
+          "returnAllMatches": "returnAllMatches"
+        }
+      },
+      "id": "e3ffc258-07b2-49cf-9df5-48229007feb0",
+      "name": "Fetch Responses (Cycle)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        672,
+        1840
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Zgco6jw9Plu7dw1B",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY",
+          "mode": "list",
+          "cachedResultName": "entities",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 250712757,
+          "mode": "list",
+          "cachedResultName": "SILENCE_FLAGS",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Q0ePdhQJTLTs4y8g6XNJW5v9EHcrRJZLIzyx1XW7oKY/edit#gid=250712757"
+        },
+        "options": {}
+      },
+      "id": "2f221572-f436-472b-8c34-edf7c185dbc4",
+      "name": "Fetch Silence Flags (Cycle)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        672,
+        2064
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Zgco6jw9Plu7dw1B",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 17 * * 5"
+            }
+          ]
+        }
+      },
+      "id": "3e5f7966-8b70-47cf-adb1-26e67e661836",
+      "name": "Cron Trigger1",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        64,
+        1904
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calculate ISO week cycle_id (YYYY-WWW)\nconst d = new Date();\nconst day = d.getUTCDay() || 7;\nd.setUTCDate(d.getUTCDate() + 4 - day);\nconst yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));\nconst week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);\nconst cycle_id = `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;\nreturn [{ json: { cycle_id } }];"
+      },
+      "id": "5b2451db-cc11-4a0a-bf5e-e2c3673a7f02",
+      "name": "Calculate Cycle ID2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        1904
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * Workflow 4 — Aggregation Code (FINAL, CORRECT)\n * Works with mixed items:\n * - checkin_responses rows\n * - silence_flags rows\n */\n\n// All rows passed into this node\nconst rows = items.map(item => item.json);\n\nconst healthy = [];\nconst at_risk = [];\nconst silent = [];\n\n// Get cycle_id from any row\nconst cycle_id = rows[0]?.cycle_id || null;\n\nrows.forEach(row => {\n  // SILENT rows (from silence_flags)\n  if (row.status === \"SILENT\" || row.reason === \"no_checkin_submitted\") {\n    silent.push(row.entity_id);\n    return;\n  }\n\n  // RESPONSE rows (from checkin_responses)\n  const entityId = row.entity_id || row[\"Entity ID \"];\n\n  if (row.risk_flag === true || row.risk_flag === \"TRUE\") {\n    at_risk.push(entityId);\n  } else {\n    healthy.push(entityId);\n  }\n});\n\nreturn [\n  {\n    json: {\n      cycle: cycle_id,\n      counts: {\n        total: healthy.length + at_risk.length + silent.length,\n        healthy: healthy.length,\n        at_risk: at_risk.length,\n        silent: silent.length\n      },\n      lists: {\n        healthy,\n        at_risk,\n        silent\n      }\n    }\n  }\n];\n"
+      },
+      "id": "e4d320ed-2dc8-4005-b029-ec11be02a971",
+      "name": "Code (Aggregation)1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        1888
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "moharanamanoranjan56@gmail.com",
+        "subject": "Cycle Report: {{ $json.cycle }}",
+        "message": "=👋 Cycle Summary for {{ $json.cycle }}\n\n📊 Overview\nTotal Tracked: {{ $json.counts.total }}\n✅ Healthy: {{ $json.counts.healthy }}\n⚠️ At Risk: {{ $json.counts.at_risk }}\n👻 Silent: {{ $json.counts.silent }}\n\n-------------\n\n⚠️ At Risk Entities:\n{{ $json.lists.at_risk.join(', ') || 'None' }}\n\n👻 Silent Entities:\n{{ $json.lists.silent.join(', ') || 'None' }}\n\n✅ Healthy Entities:\n{{ $json.lists.healthy.join(', ') || 'None' }}",
+        "options": {}
+      },
+      "id": "3aec2b0f-c6fe-4294-baa8-2e1d45ad3b55",
+      "name": "Notify Human (Email)1",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        1888
+      ],
+      "webhookId": "d0a5378a-35d6-4aea-b815-ae255409aef3",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "wQEUChLr6p4FBnLg",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "239693a7-d798-4e1b-9409-84cfd2254fb9",
+      "name": "Merge1",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        992,
+        1888
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Check-In Sender\n\nThis workflow sends the check-in form to clients who are eligible to respond.\nIt identifies active, paid clients with check-ins enabled and delivers the form link on a fixed schedule.\nIts only job is to ask for input. It does not track, analyze, or store responses.",
+        "height": 320,
+        "width": 944
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        224,
+        -16
+      ],
+      "typeVersion": 1,
+      "id": "9453df24-7b5b-4bcd-82a2-b5b74ee26814",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "Check-In Receiver & Risk Evaluation\n\nThis workflow runs when a client submits the check-in form.\nIt captures the submitted data, evaluates predefined rules, and determines whether the client is at risk.\nIt stores the response and the risk flag for later use.\nIts only job is to analyze submitted responses.",
+        "height": 320,
+        "width": 1104,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        144,
+        448
+      ],
+      "typeVersion": 1,
+      "id": "88657693-eafc-4534-abb7-6af078d1be98",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "Silence / Ghost Detection\n\nThis workflow identifies clients who were expected to submit a check-in but did not.\nIt compares the list of eligible clients against the list of submitted responses for the same cycle.\nAny missing client is marked as silent and recorded.\nIts only job is to detect non-responses.",
+        "height": 480,
+        "width": 1472,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        32,
+        976
+      ],
+      "typeVersion": 1,
+      "id": "35b2d184-004f-406e-b4bc-429f694b797f",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "Cycle Summary & Human Notification\n\nThis workflow compiles the results of the entire cycle.\nIt aggregates responded clients, at-risk clients, and silent clients into a single summary.\nIt sends this summary to a human for review.\nIts only job is to report the current state of the cycle",
+        "height": 512,
+        "width": 1520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        32,
+        1696
+      ],
+      "typeVersion": 1,
+      "id": "66d7ffb8-5eb1-4f72-ab1f-479488dba10f",
+      "name": "Sticky Note3"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Cron Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Active Entities",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Active Entities": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Send Check-In Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Check-In Email": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code (Risk Evaluation)": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Expected Entities": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Fetch Responders (Current Cycle)": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets Trigger": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches1": {
+      "main": [
+        [
+          {
+            "node": "Update Response Record",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code (Risk Evaluation)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Code (Silence Detection)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cron Trigger3": {
+      "main": [
+        [
+          {
+            "node": "Calculate Cycle ID1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Expected Entities",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Cycle ID1": {
+      "main": [
+        [
+          {
+            "node": "Fetch Responders (Current Cycle)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code (Silence Detection)1": {
+      "main": [
+        [
+          {
+            "node": "Store Silence Flags1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Cycle ID": {
+      "main": [
+        [
+          {
+            "node": "Fetch Responses (Cycle)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Responses (Cycle)": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Silence Flags (Cycle)": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Cron Trigger1": {
+      "main": [
+        [
+          {
+            "node": "Calculate Cycle ID2",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Silence Flags (Cycle)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Cycle ID2": {
+      "main": [
+        [
+          {
+            "node": "Set Cycle ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code (Aggregation)1": {
+      "main": [
+        [
+          {
+            "node": "Notify Human (Email)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Code (Aggregation)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "aceca03a-d3ba-4b32-9f38-4ac2b3a5ee46",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "817537ccf45e86df6628493ea2633ffbe1226f94f1007e5cee39998aedda52c5"
+  },
+  "id": "8jro9TdJBqzN_LKDHsV43",
+  "tags": []
+}
